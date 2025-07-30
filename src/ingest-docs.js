@@ -24,71 +24,144 @@ function isHeading(p) {
 }
 
 function buildChunks(text, targetChars = 1200, overlap = 200) {
-  // Try double newlines first, fallback to single newlines, then sentences
-  let paras = text.split(/\n{2,}/g).map(s => s.trim()).filter(Boolean);
+  console.log(`📝 Starting recursive chunking (target: ${targetChars} chars, overlap: ${overlap})`);
   
-  // If we only got 1 "paragraph", the text doesn't use double newlines
-  if (paras.length === 1) {
-    console.log('📝 No double newlines found, splitting on single newlines...');
-    paras = text.split(/\n/g).map(s => s.trim()).filter(Boolean);
-  }
-  
-  // If still too few breaks and the text is long, split on sentences
-  if (paras.length < 3 && text.length > targetChars * 2) {
-    console.log('📝 Few line breaks found, splitting on sentences...');
-    paras = text.split(/[.!?]+/).map(s => s.trim()).filter(Boolean);
+  // Recursive character splitter - tries separators in order of preference
+  const separators = [
+    '\n\n',    // Paragraph breaks (highest priority)
+    '\n',      // Line breaks
+    '. ',      // Sentence endings
+    '! ',      // Exclamation sentences
+    '? ',      // Question sentences
+    '; ',      // Semicolons
+    ', ',      // Commas
+    ' ',       // Word boundaries
+    ''         // Character level (last resort)
+  ];
+
+  function recursiveSplit(text, separators, targetSize, currentDepth = 0) {
+    const indent = '  '.repeat(currentDepth);
+    console.log(`${indent}🔍 Trying separator "${separators[0]}" on ${text.length} chars`);
+    
+    if (text.length <= targetSize) {
+      console.log(`${indent}✅ Text fits in target size`);
+      return [text];
+    }
+
+    if (separators.length === 0) {
+      console.log(`${indent}⚠️ No separators left, force-splitting at ${targetSize} chars`);
+      // Force split at character level
+      const chunks = [];
+      for (let i = 0; i < text.length; i += targetSize) {
+        chunks.push(text.slice(i, i + targetSize));
+      }
+      return chunks;
+    }
+
+    const [currentSep, ...remainingSeps] = separators;
+    
+    if (currentSep === '') {
+      // Character-level splitting
+      console.log(`${indent}📏 Character-level splitting`);
+      const chunks = [];
+      for (let i = 0; i < text.length; i += targetSize) {
+        chunks.push(text.slice(i, i + targetSize));
+      }
+      return chunks;
+    }
+
+    // Split by current separator
+    const splits = text.split(currentSep);
+    console.log(`${indent}📋 Split into ${splits.length} parts`);
+    
+    if (splits.length === 1) {
+      // Separator not found, try next one
+      console.log(`${indent}❌ Separator not found, trying next...`);
+      return recursiveSplit(text, remainingSeps, targetSize, currentDepth + 1);
+    }
+
+    // Reconstruct chunks while respecting size limits
+    const chunks = [];
+    let currentChunk = '';
+
+    for (let i = 0; i < splits.length; i++) {
+      const piece = splits[i];
+      const separator = (i < splits.length - 1) ? currentSep : '';
+      const testChunk = currentChunk + (currentChunk ? currentSep : '') + piece;
+
+      if (testChunk.length <= targetSize || currentChunk === '') {
+        // Fits in current chunk or we need to start somewhere
+        currentChunk = testChunk;
+      } else {
+        // Current chunk is full, save it and start new one
+        if (currentChunk) {
+          chunks.push(currentChunk);
+        }
+        currentChunk = piece;
+      }
+
+      // If this piece alone is too big, recursively split it
+      if (piece.length > targetSize) {
+        console.log(`${indent}🔄 Piece too big (${piece.length} chars), recursively splitting...`);
+        if (currentChunk === piece) {
+          // This piece started a new chunk, split it recursively
+          chunks.pop(); // Remove the oversized chunk we just added
+          const subChunks = recursiveSplit(piece, remainingSeps, targetSize, currentDepth + 1);
+          chunks.push(...subChunks.slice(0, -1)); // Add all but last
+          currentChunk = subChunks[subChunks.length - 1]; // Continue with last
+        } else {
+          // Save current chunk and recursively split the big piece
+          if (currentChunk) chunks.push(currentChunk);
+          const subChunks = recursiveSplit(piece, remainingSeps, targetSize, currentDepth + 1);
+          chunks.push(...subChunks.slice(0, -1)); // Add all but last
+          currentChunk = subChunks[subChunks.length - 1]; // Continue with last
+        }
+      }
+    }
+
+    // Add the final chunk if it has content
+    if (currentChunk.trim()) {
+      chunks.push(currentChunk);
+    }
+
+    console.log(`${indent}✅ Created ${chunks.length} chunks at this level`);
+    return chunks;
   }
 
-  console.log(`📝 Split into ${paras.length} segments`);
+  // Apply the recursive splitter
+  const rawChunks = recursiveSplit(text.trim(), separators, targetChars);
   
-  let currentSection = null;
-  let buf = '';
-  let chunks = [];
-  let sectionIndex = -1;
-  let chunkIndex = 0;
-
-  const flush = () => {
-    const content = buf.trim();
-    if (!content) return;
-    chunks.push({
+  // Add overlap and metadata
+  const chunksWithOverlap = [];
+  for (let i = 0; i < rawChunks.length; i++) {
+    let content = rawChunks[i].trim();
+    
+    // Add overlap from previous chunk
+    if (i > 0 && overlap > 0) {
+      const prevContent = chunksWithOverlap[i - 1].content;
+      const overlapText = prevContent.slice(-overlap);
+      content = overlapText + ' ' + content;
+    }
+    
+    chunksWithOverlap.push({
       content,
       payload: {
-        section_title: currentSection || null,
-        section_index: sectionIndex >= 0 ? sectionIndex : null,
-        chunk_index: chunkIndex++,
-        char_count: content.length
+        section_title: null, // Could enhance this to detect headers
+        section_index: null,
+        chunk_index: i,
+        char_count: content.length,
+        original_index: i,
+        has_overlap: i > 0 && overlap > 0
       }
     });
-    console.log(`📦 Created chunk ${chunkIndex} (${content.length} chars)`);
-    buf = '';
-  };
-
-  for (let p of paras) {
-    if (isHeading(p)) {
-      if (buf.trim()) flush();
-      currentSection = p;
-      sectionIndex++;
-      continue;
-    }
-
-    const wouldBeLength = (buf + (buf ? ' ' : '') + p).length;
-    if (wouldBeLength >= targetChars) {
-      flush();
-      if (chunks.length && overlap > 0) {
-        const tail = chunks[chunks.length - 1].content;
-        const overlapStr = tail.slice(-overlap);
-        buf = overlapStr + ' ' + p;
-      } else {
-        buf = p;
-      }
-    } else {
-      buf += (buf ? ' ' : '') + p;
-    }
+    
+    console.log(`📦 Chunk ${i + 1}: ${content.length} chars${i > 0 && overlap > 0 ? ' (with overlap)' : ''}`);
   }
-  if (buf.trim()) flush();
+
+  console.log(`📊 Final result: ${chunksWithOverlap.length} chunks from ${text.length} characters`);
+  console.log(`📈 Average chunk size: ${Math.round(chunksWithOverlap.reduce((sum, c) => sum + c.content.length, 0) / chunksWithOverlap.length)} chars`);
   
-  console.log(`📊 Total chunks created: ${chunks.length}`);
-  return chunks;
+  return chunksWithOverlap;
 }
 
 async function getEmbedding(model, text) {
