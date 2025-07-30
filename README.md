@@ -2,6 +2,10 @@
 
 Add code functions and document chunks to Qdrant using Ollama embeddings.
 
+This repository includes:
+- **qadd**: CLI for ingesting functions and documents into Qdrant
+- **qsearch**: CLI for semantic search within Qdrant collections (see `qsearch/` folder)
+
 ## Install (local)
 
 ```bash
@@ -45,3 +49,7 @@ qadd docs --file ./manual.txt \
 - `--chunk <int>`: Target chunk size in characters (default: 1200)
 - `--overlap <int>`: Overlap in characters (default: 200)
 - `--batch <int>`: Upsert batch size (default: 64)
+
+## Companion Tool: qsearch
+
+The `qsearch/` folder contains a bash CLI for semantic search within your Qdrant collections. See `qsearch/README.md` for installation and usage instructions.
