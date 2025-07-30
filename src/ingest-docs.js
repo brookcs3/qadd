@@ -24,7 +24,23 @@ function isHeading(p) {
 }
 
 function buildChunks(text, targetChars = 1200, overlap = 200) {
-  const paras = text.split(/\n{2,}/g).map(s => s.trim()).filter(Boolean);
+  // Try double newlines first, fallback to single newlines, then sentences
+  let paras = text.split(/\n{2,}/g).map(s => s.trim()).filter(Boolean);
+  
+  // If we only got 1 "paragraph", the text doesn't use double newlines
+  if (paras.length === 1) {
+    console.log('📝 No double newlines found, splitting on single newlines...');
+    paras = text.split(/\n/g).map(s => s.trim()).filter(Boolean);
+  }
+  
+  // If still too few breaks and the text is long, split on sentences
+  if (paras.length < 3 && text.length > targetChars * 2) {
+    console.log('📝 Few line breaks found, splitting on sentences...');
+    paras = text.split(/[.!?]+/).map(s => s.trim()).filter(Boolean);
+  }
+
+  console.log(`📝 Split into ${paras.length} segments`);
+  
   let currentSection = null;
   let buf = '';
   let chunks = [];
@@ -43,6 +59,7 @@ function buildChunks(text, targetChars = 1200, overlap = 200) {
         char_count: content.length
       }
     });
+    console.log(`📦 Created chunk ${chunkIndex} (${content.length} chars)`);
     buf = '';
   };
 
@@ -54,7 +71,8 @@ function buildChunks(text, targetChars = 1200, overlap = 200) {
       continue;
     }
 
-    if ((buf + (buf ? ' ' : '') + p).length >= targetChars * 1.1) {
+    const wouldBeLength = (buf + (buf ? ' ' : '') + p).length;
+    if (wouldBeLength >= targetChars) {
       flush();
       if (chunks.length && overlap > 0) {
         const tail = chunks[chunks.length - 1].content;
@@ -68,6 +86,8 @@ function buildChunks(text, targetChars = 1200, overlap = 200) {
     }
   }
   if (buf.trim()) flush();
+  
+  console.log(`📊 Total chunks created: ${chunks.length}`);
   return chunks;
 }
 
