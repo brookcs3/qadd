@@ -1,0 +1,71 @@
+#!/bin/bash
+
+# qsearch: Semantic search CLI for Qdrant via Ollama embeddings
+
+function usage {
+  cat <<EOF
+Usage:
+  qsearch [--term <term> | --prompt <text>] [--limit <N>] [--collection <name>] [--model <model>]
+Options:
+  --term         Short keyword to embed
+  --prompt       Full question or sentence to embed
+  --limit        Number of hits to return (default: 13)
+  --collection   Qdrant collection name (default: echoplex_manual_semantic)
+  --model        Ollama embedding model (default: inke/Qwen3-Embedding-0.6B:latest)
+  --help, -h     Show this help message
+EOF
+  exit 1
+}
+
+# defaults
+LIMIT=13
+COLLECTION="echoplex_manual_semantic"
+MODEL="inke/Qwen3-Embedding-0.6B:latest"
+
+# parse flags
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --term)
+      PROMPT="$2"; shift 2;;
+    --prompt)
+      PROMPT="$2"; shift 2;;
+    --limit)
+      LIMIT="$2"; shift 2;;
+    --collection)
+      COLLECTION="$2"; shift 2;;
+    --model)
+      MODEL="$2"; shift 2;;
+    --help|-h)
+      usage;;
+    *)
+      usage;;
+  esac
+done
+
+# must have prompt
+[[ -z "$PROMPT" ]] && usage
+
+echo "🔍 Prompt:   \"$PROMPT\""
+echo "🎯 Limit:    $LIMIT"
+echo "📦 Model:    $MODEL"
+echo "📂 Collection: $COLLECTION"
+
+# 1) get embedding
+EMBED_RESP=$(curl -s -X POST http://localhost:11434/api/embeddings \
+  -H "Content-Type: application/json" \
+  -d "{\"model\": \"$MODEL\", \"prompt\": \"$PROMPT\"}")
+
+EMBEDDING=$(echo "$EMBED_RESP" | jq '.embedding')
+if [[ -z "$EMBEDDING" || "$EMBEDDING" == "null" ]]; then
+  echo "❌ Failed to obtain embedding from model $MODEL"
+  exit 1
+fi
+echo "✅ Embedding retrieved."
+
+# 2) query Qdrant
+QDRANT_RESP=$(curl -s -X POST "http://localhost:6333/collections/$COLLECTION/points/search" \
+  -H "Content-Type: application/json" \
+  -d "{\"vector\": $EMBEDDING, \"limit\": $LIMIT, \"with_payload\": true}")
+
+echo "📖 Search results:"
+echo "$QDRANT_RESP" | jq
